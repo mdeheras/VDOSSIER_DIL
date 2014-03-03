@@ -3,8 +3,7 @@
 #include "DynamixelSerial1.h"
 #include "Adafruit_NeoPixel.h"
 #include "IRremote.h"
-#include "WiFlyHQ.h"
-#include "ArdOSCForWiFlyHQ.h"
+
 #include "Constants.h"
 
 
@@ -21,9 +20,14 @@ WiFly wifly;
 OSCClient client(&wifly);
 OSCServer server(&wifly);
 
-int accel_x=0;
-int accel_y=0;
-int accel_z=0;
+void setDisplay(OSCMessage *_mes){
+  uint8_t Value=(byte)(_mes->getArgInt32(0));
+  if (Value>15) Value = 15;
+    for (int i = 0; i<14; i++)
+    {
+      digitalWrite(dis[i], !code[Value][i]);
+    }  
+}
   
 void DIL::begin()
   {
@@ -33,6 +37,9 @@ void DIL::begin()
       pinMode(i, INPUT);
       digitalWrite(i, HIGH);
     }
+    
+    pinMode(PIN_POWER_MIC, INPUT);
+    digitalWrite(PIN_POWER_MIC, LOW);
     
     //Inicializacion pines del encoder
     for (int i = 0; i<4; i++)
@@ -51,7 +58,7 @@ void DIL::begin()
     
     Wire.begin();       //Inicializo bus I2C
     Serial.begin(9600); //USB inicializado a 9600
-    Serial2.begin(115200); //WIFI inicializado a 9600
+    Serial2.begin(9600); //WIFI inicializado a 9600
     Serial3.begin(9600); //LANC inicializado a 9600
     mic.begin(2400);  //Control del microfono inicializado a 2400
     
@@ -67,33 +74,84 @@ void DIL::begin()
     
    
     
-//    wifly.setupForUDP<HardwareSerial>(
-//      &Serial2,   //the serial you want to use (this can also be a software serial)
-//      115200, // if you use a hardware serial, I would recommend the full 115200
-//      true,	// should we try some other baudrates if the currently selected one fails?
-//      mySSID,  //Your Wifi Name (SSID)
-//      myPassword, //Your Wifi Password 
-//      "DI&L",                 // Device name for identification in the network
-//      0,         // IP Adress of the Wifly. if 0 (without quotes), it will use dhcp to get an ip
-//      localPort,                    // WiFly receive port
-//      IP,       // Where to send outgoing Osc messages. "255.255.255.255" will send to all hosts in the subnet
-//      outPort,                     // outgoing port
-//      false	// show debug information on Serial
-//    ); 
-//    wifly.printStatusInfo(); //print some debug information 
-
-
-//    server.addCallback("/m1",&setMotor1);
-//    server.addCallback("/m2",&setMotor2);
-//    server.addCallback("/m3",&setMotor3);
-//    server.addCallback("/v1",&setVel1);
-//    server.addCallback("/v2",&setVel2);
-//    server.addCallback("/v3",&setVel3);
-//    server.addCallback("/r", &sReset);
-//    server.addCallback("/s",&setStop);
-//    server.addCallback("/t",&test);
+    wifly.setupForUDP<HardwareSerial>(
+      &Serial2,   //the serial you want to use (this can also be a software serial)
+      115200, // if you use a hardware serial, I would recommend the full 115200
+      true,	// should we try some other baudrates if the currently selected one fails?
+      mySSID,  //Your Wifi Name (SSID)
+      myPassword, //Your Wifi Password 
+      "DI&L",                 // Device name for identification in the network
+      0,         // IP Adress of the Wifly. if 0 (without quotes), it will use dhcp to get an ip
+      localPort,                    // WiFly receive port
+      IP,       // Where to send outgoing Osc messages. "255.255.255.255" will send to all hosts in the subnet
+      outPort,                     // outgoing port
+      false	// show debug information on Serial
+    ); 
+    wifly.printStatusInfo(); //print some debug information 
+    static char STRING_DISPLAY[15] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'D',
+            'I', 'S', 'P', 'L', 
+            'A' , 'Y' , 0x00
+          };
+    server.addCallback(STRING_DISPLAY,&setDisplay);
     delay(1000);
   }
+
+boolean connect_mic = false;
+
+boolean DIL::ini_mic()
+  {
+    int cont=50;
+    if ((digitalRead(PIN_POWER_MIC))&&(!connect_mic))
+    {  
+      while(cont>0) //Repetimos el proceso 50 veces para asegurarnos que la sesion se inicia
+       {
+        mic.write(byte(0x00)); //El mando mandas 0s hasta que la gravadora responde con 0x80
+        //delay(100);
+        if (mic.available())
+        {
+         if(mic.read()==0x80)
+          {
+            mic.write(byte(0xA1));// Sersion iniciada
+            connect_mic = true;
+            return connect_mic;
+          }
+         else 
+         {
+           connect_mic = false;
+         }
+        }
+       cont--;
+       }
+    }
+    else if(!digitalRead(PIN_POWER_MIC))
+    {
+      connect_mic = false;
+    }
+    return connect_mic;
+  }
+  
+void DIL::writeDisplay(byte character)
+{
+  if (character>15) character = 15;
+    for (int i = 0; i<14; i++)
+    {
+      digitalWrite(dis[i], !code[character][i]);
+    }    
+}
+
+void DIL::volpos_mic()
+{
+   mic.write(byte(0x80));// Sersion iniciada
+   mic.write(byte(0x08));// Sersion iniciada
+}
+
+void DIL::volneg_mic()
+{
+   mic.write(byte(0x80));// Sersion iniciada
+   mic.write(byte(0x10));// Sersion iniciada
+}
   
 void DIL::ledRGB(byte led, byte red, byte green, byte blue)
   {  
@@ -101,14 +159,6 @@ void DIL::ledRGB(byte led, byte red, byte green, byte blue)
      strip.show();  //Visualiza leds RGB
   }
   
-void DIL::writeDisplay(byte character)
-  {  
-    if (character>15) character = 16;
-    for (int i = 0; i<14; i++)
-    {
-      digitalWrite(dis[i], !code[character][i]);
-    }         
-  }
   
 boolean DIL::readButton(byte button)
   {
@@ -116,13 +166,15 @@ boolean DIL::readButton(byte button)
     else return false;
   }
 
-byte DIL::readEncoder()
+char DIL::readEncoder()
   {
-    int value = 0;
+    char value = 0;
     for (int i = 0; i<4; i++)
     {
       value = value + !digitalRead(enc[i])*encval[i];
     }
+    if (value<10) value=value+48;
+    else value=value+55;
     return value;
   }
 
@@ -131,12 +183,32 @@ byte DIL::readBattery()
    return(map(VCC/1023.*analogRead(PIN_BAT), 3000, 4200, 0, 100)); 
   }
 
+void DIL::checkOSC()
+  {
+    if (server.availableCheck(2)>0)
+    {
+      ledRGB(0,255,0,0);
+    }
+    else ledRGB(0,0,0,0);
+  }
+  
+boolean state[6] = {0,0,0,0,0,0};
+
 void DIL::checkButton()
   {
     for (int i = 0; i<6; i++)
     {
-     if (readButton(i)) ledRGB(i, 0, 0, 255);
-     else ledRGB(i, 0, 0, 0);
+       if ((readButton(i))!=(state[i])) 
+       {
+         char STRING_BUTTON[16] = { // Message template
+            '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
+            'L' , readEncoder() , '/', 'B',
+            'U', 'T', 'T', 'O', 
+            'N' , B0 , B0, B0
+          };
+         state[i] = readButton(i);
+         client.sendInt((i<<4)|state[i], STRING_BUTTON);
+       }
     }
   }
   
@@ -176,58 +248,56 @@ void DIL::readADXL(byte address, int num, byte buff[])
     Wire.endTransmission(); //end transmission
   }
 
+int accel_ant[3] ={0,0,0};
+int accel[3] ={0,0,0};
+
 void DIL::refreshADXL()
   {
     #define lim 512
-    int temp_x=0;
-    int temp_y=0;
-    int temp_z=0;
+    #define RES 5
+    int temp[3] ={0,0,0};
     int lecturas=10;
     byte buffADXL[6] ;    //6 bytes buffer for saving data read from the device
-    accel_x=0;
-    accel_y=0;
-    accel_z=0;
-    
+    for (int i=0; i<3; i++) accel[i] = 0;
     for(int i=0; i<lecturas; i++)
     {
       readADXL(0x32, 6, buffADXL); //read the acceleration data from the ADXL345
-      temp_x = (((int)buffADXL[1]) << 8) | buffADXL[0]; 
-      temp_x = map(temp_x,-lim,lim,0,1023);  
-      temp_y = (((int)buffADXL[3])<< 8) | buffADXL[2];
-      temp_y = map(temp_y,-lim,lim,0,1023); 
-      temp_z = (((int)buffADXL[5]) << 8) | buffADXL[4];
-      temp_z = map(temp_z,-lim,lim,0,1023); 
-      accel_x = (int)(temp_x + accel_x);
-      accel_y = (int)(temp_y + accel_y);
-      accel_z = (int)(temp_z + accel_z);
+      temp[0] = (((int)buffADXL[1]) << 8) | buffADXL[0]; 
+      temp[0] = map(temp[0],-lim,lim,0,1023);  
+      temp[1]= (((int)buffADXL[3])<< 8) | buffADXL[2];
+      temp[1] = map(temp[1],-lim,lim,0,1023); 
+      temp[2] = (((int)buffADXL[5]) << 8) | buffADXL[4];
+      temp[2] = map(temp[2],-lim,lim,0,1023); 
+      for (int j=0; j<3; j++) accel[j] = (int)(temp[j] + accel[j]);
     }
-    accel_x = (int)(accel_x / lecturas);
-    accel_y = (int)(accel_y / lecturas);
-    accel_z = (int)(accel_z / lecturas);
-  }
-
-int DIL::getAxisX()
-  {
-    return accel_x;
-  }
-
-int DIL::getAxisY()
-  {
-    return accel_y;
-  }
-
-int DIL::getAxisZ()
-  {
-    return accel_z;
+    for (int i=0; i<3; i++) 
+    {
+      accel[i] = (int)(accel[i] / lecturas);
+      if ((accel[i]>=accel_ant[i] + RES)||(accel[i]<=accel_ant[i] - RES)) 
+         {
+           char STRING_ACCEL[16] = { // Message template
+              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
+              'L' , readEncoder() , '/', 'A',
+              'C', 'C', 'E', 'L', 
+               i + 'X' , B0 , B0, B0
+            };
+           accel_ant[i] = accel[i];
+           client.sendInt(accel[i], STRING_ACCEL);
+         }
+    }
   }
   
-boolean DIL::availableIR()
+void DIL::checkIR()
 {
-  return (irrecv.decode(&results));
-}
-
-unsigned long DIL::readIR()
-{
-        irrecv.resume(); // Receive the next value
-        return(results.value);
+  if (irrecv.decode(&results))
+   {
+     irrecv.resume(); // Receive the next value
+     char STRING_IR[12] = { // Message template
+              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
+              'L' , readEncoder() , '/', 'I',
+              'R', B0 , B0, B0
+      };
+     if (results.value!=0xFFFFFFFF) client.sendInt(results.value, STRING_IR);
+//     Serial.println(results.value, HEX);
+   }
 }
