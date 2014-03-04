@@ -28,7 +28,57 @@ void setDisplay(OSCMessage *_mes){
       digitalWrite(dis[i], !code[Value][i]);
     }  
 }
+
+void setMic(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  uint8_t Value_Send1 = (uint8_t)(Value>>8);
+  uint8_t Value_Send2 = (uint8_t)(Value);
+  mic.write(Value_Send1);
+  mic.write(Value_Send2);
+  mic.write((byte)0x80);
+  mic.write((byte)0x00); 
+} 
+
+void setLanc(OSCMessage *_mes){
+  uint16_t Value_Send=_mes->getArgInt32(0);
+//  uint16_t Value_Send = (uint16_t)(Value);
+  Serial3.println(Value_Send, HEX);
+  Serial3.println();
+  Serial3.println();
+} 
+
+void ledRGB(byte led, byte red, byte green, byte blue)
+  {  
+     strip.setPixelColor(led, red, green, blue);
+     strip.show();  //Visualiza leds RGB
+  }
   
+void setLed0(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(0, Value>>16, Value>>8, Value);
+} 
+
+void setLed1(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(1, Value>>16, Value>>8, Value);
+} 
+void setLed2(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(2, Value>>16, Value>>8, Value);
+} 
+void setLed3(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(3, Value>>16, Value>>8, Value);
+} 
+void setLed4(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(4, Value>>16, Value>>8, Value);
+} 
+void setLed5(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  ledRGB(5, Value>>16, Value>>8, Value);
+} 
+
 void DIL::begin()
   {
     //Inicializacion pulsadores
@@ -95,6 +145,65 @@ void DIL::begin()
             'A' , 'Y' , 0x00
           };
     server.addCallback(STRING_DISPLAY,&setDisplay);
+    
+    static char STRING_MIC[14] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'M',
+            'I', 'C', 'C', 'M', 
+            'D' , 0x00
+          };
+    server.addCallback(STRING_MIC,&setMic);
+        
+    static char STRING_LANC[15] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'A', 'N', 'C', 'C', 
+            'M' , 'D', 0x00
+          };
+    server.addCallback(STRING_LANC,&setLanc);
+    
+    static char STRING_LED0[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '0', 0x00
+          };
+    server.addCallback(STRING_LED0,&setLed0);
+    
+    static char STRING_LED1[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '1', 0x00
+          };
+    server.addCallback(STRING_LED1,&setLed1);
+    
+    static char STRING_LED2[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '2', 0x00
+          };
+    server.addCallback(STRING_LED2,&setLed2);
+    
+    static char STRING_LED3[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '3', 0x00
+          };
+    server.addCallback(STRING_LED3,&setLed3);
+    
+    static char STRING_LED4[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '4', 0x00
+          };
+    server.addCallback(STRING_LED4,&setLed4);
+    
+    static char STRING_LED5[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'L',
+            'E', 'D', '5', 0x00
+          };
+    server.addCallback(STRING_LED5,&setLed5);
+    
     delay(1000);
   }
 
@@ -140,25 +249,6 @@ void DIL::writeDisplay(byte character)
       digitalWrite(dis[i], !code[character][i]);
     }    
 }
-
-void DIL::volpos_mic()
-{
-   mic.write(byte(0x80));// Sersion iniciada
-   mic.write(byte(0x08));// Sersion iniciada
-}
-
-void DIL::volneg_mic()
-{
-   mic.write(byte(0x80));// Sersion iniciada
-   mic.write(byte(0x10));// Sersion iniciada
-}
-  
-void DIL::ledRGB(byte led, byte red, byte green, byte blue)
-  {  
-     strip.setPixelColor(led, red, green, blue);
-     strip.show();  //Visualiza leds RGB
-  }
-  
   
 boolean DIL::readButton(byte button)
   {
@@ -185,11 +275,7 @@ byte DIL::readBattery()
 
 void DIL::checkOSC()
   {
-    if (server.availableCheck(2)>0)
-    {
-      ledRGB(0,255,0,0);
-    }
-    else ledRGB(0,0,0,0);
+    server.availableCheck(2);
   }
   
 boolean state[6] = {0,0,0,0,0,0};
@@ -300,4 +386,18 @@ void DIL::checkIR()
      if (results.value!=0xFFFFFFFF) client.sendInt(results.value, STRING_IR);
 //     Serial.println(results.value, HEX);
    }
+}
+
+void DIL::checkMic()
+{ 
+  ini_mic();
+//  if (mic.available())
+//   {
+////     irrecv.resume(); // Receive the next value
+////     char STRING_IR[12] = { // Message template
+////              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
+////              'L' , readEncoder() , '/', 'I',
+////              'R', B0 , B0, B0      };
+//        Serial.println(mic.read(), HEX);
+//   }
 }

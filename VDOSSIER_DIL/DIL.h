@@ -9,16 +9,15 @@
 class DIL {
   public:  
     void begin();
-    void ledRGB(byte led, byte red, byte green, byte blue);
+//    void ledRGB(byte led, byte red, byte green, byte blue);
     void writeDisplay(byte character);
     boolean readButton(byte button);
     char readEncoder();
     byte readBattery();
     void checkButton();
     void checkIR();
+    void checkMic();
     boolean ini_mic();
-    void volpos_mic();
-    void volneg_mic();
     void refreshADXL();
     void checkOSC();
 //    void checkButtons();
