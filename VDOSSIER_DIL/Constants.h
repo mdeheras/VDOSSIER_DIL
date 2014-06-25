@@ -1,5 +1,5 @@
-const char mySSID[] = "hangar_oficines";  
-const char myPassword[] = "m1cr0fug4s";
+const char mySSID[] = "DI&L";  
+const char myPassword[] = "vdossier";
 const char *IP = "172.26.255.255";
 
 const uint16_t outPort = 8000;

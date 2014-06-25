@@ -39,9 +39,19 @@ void setMic(OSCMessage *_mes){
   mic.write((byte)0x00); 
 } 
 
+void setDYNAMIXEL(OSCMessage *_mes){
+  uint32_t Value=_mes->getArgInt32(0);
+  uint8_t ID = (uint8_t)(Value>>8);
+  uint8_t Position = (uint8_t)(Value);
+  uint8_t Speed = (uint8_t)(Value>>8);
+  Dynamixel.moveSpeed(ID, Position, Speed);  
+  //ID – numero de identificación del servomotor
+  //Position – posición del servo de 0 a 1023 (0 a 300 grados)
+  //Speed – velocidad a la que se moverá el servo 0 a 1023
+} 
+
 void setLanc(OSCMessage *_mes){
   uint16_t Value_Send=_mes->getArgInt32(0);
-//  uint16_t Value_Send = (uint16_t)(Value);
   Serial3.println(Value_Send, HEX);
   Serial3.println();
   Serial3.println();
@@ -114,7 +124,7 @@ void DIL::begin()
     
     strip.begin(); //Inicializacion de leds RGB
     strip.show();  //Visualiza leds RGB
-    Dynamixel.begin(1000000,PIN_DYNAMIXEL);  // Inicializa el servo a 1Mbps en el Pin Control 4
+    Dynamixel.begin(1000000,PIN_DYNAMIXEL);  // Inicializa el servo a 1Mbps el Serial1 y con el Pin Control 4
     irrecv.enableIRIn(); // Start the receiver IR
     writeADXL(0x2D, 0x08);
     //  writeADXL(0x31, 0x00); //2g
@@ -203,6 +213,14 @@ void DIL::begin()
             'E', 'D', '5', 0x00
           };
     server.addCallback(STRING_LED5,&setLed5);
+    
+    static char STRING_DYNAMIXEL[12] = {
+            '/', 'D', 'I', '&',
+            'L' , readEncoder() , '/', 'D',
+            'Y', 'N', 'A', 0x00
+          };
+          
+    server.addCallback(STRING_DYNAMIXEL,&setDYNAMIXEL);
     
     delay(1000);
   }

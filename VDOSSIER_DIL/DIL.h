@@ -9,7 +9,6 @@
 class DIL {
   public:  
     void begin();
-//    void ledRGB(byte led, byte red, byte green, byte blue);
     void writeDisplay(byte character);
     boolean readButton(byte button);
     char readEncoder();
@@ -20,11 +19,8 @@ class DIL {
     boolean ini_mic();
     void refreshADXL();
     void checkOSC();
-//    void checkButtons();
-//    void refresh();
-//    void startup();
-//    void checkADC();
   private:
     void writeADXL(byte address, byte val);
     void readADXL(byte address, int num, byte buff[]);
+    void ledRGB(byte led, byte red, byte green, byte blue);
 };
