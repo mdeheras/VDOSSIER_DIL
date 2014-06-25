@@ -15,8 +15,7 @@ class DIL {
     byte readBattery();
     void checkButton();
     void checkIR();
-    void checkMic();
-    boolean ini_mic();
+    boolean checkMic();
     void refreshADXL();
     void checkOSC();
   private:

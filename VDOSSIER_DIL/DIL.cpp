@@ -41,9 +41,9 @@ void setMic(OSCMessage *_mes){
 
 void setDYNAMIXEL(OSCMessage *_mes){
   uint32_t Value=_mes->getArgInt32(0);
-  uint8_t ID = (uint8_t)(Value>>8);
-  uint8_t Position = (uint8_t)(Value);
-  uint8_t Speed = (uint8_t)(Value>>8);
+  uint8_t ID = (uint8_t)(Value>>20);
+  uint8_t Position = (uint8_t)(Value>>10);
+  uint8_t Speed = (uint8_t)(Value);
   Dynamixel.moveSpeed(ID, Position, Speed);  
   //ID – numero de identificación del servomotor
   //Position – posición del servo de 0 a 1023 (0 a 300 grados)
@@ -91,15 +91,23 @@ void setLed5(OSCMessage *_mes){
 
 void DIL::begin()
   {
+    Serial.begin(9600); //USB inicializado a 9600
+    Serial2.begin(9600); //WIFI inicializado a 9600
+    Serial3.begin(9600); //LANC inicializado a 9600
+    mic.begin(2400);  //Control del microfono inicializado a 2400
+    Serial.println("Puertos serie inicializados.");
+    
     //Inicializacion pulsadores
     for (int i = 64; i<=69; i++)
     {
       pinMode(i, INPUT);
       digitalWrite(i, HIGH);
     }
+    Serial.println("Pulsadores inicializados.");
     
     pinMode(PIN_POWER_MIC, INPUT);
     digitalWrite(PIN_POWER_MIC, LOW);
+    Serial.println("Puerto del microfono en espera.");
     
     //Inicializacion pines del encoder
     for (int i = 0; i<4; i++)
@@ -107,6 +115,7 @@ void DIL::begin()
       pinMode(enc[i], INPUT);
       digitalWrite(enc[i], HIGH);
     }
+    Serial.println("Encoder inicializado.");
     
     //Inicializacion pines del display
     for (int i = 0; i<15; i++)
@@ -115,23 +124,27 @@ void DIL::begin()
       digitalWrite(dis[i], HIGH);
     }
     digitalWrite(dis[14], LOW); //Indicador de encendido
+    Serial.println("Display inicializado.");
     
     Wire.begin();       //Inicializo bus I2C
-    Serial.begin(9600); //USB inicializado a 9600
-    Serial2.begin(9600); //WIFI inicializado a 9600
-    Serial3.begin(9600); //LANC inicializado a 9600
-    mic.begin(2400);  //Control del microfono inicializado a 2400
+    Serial.println("Bus I2c inicializado.");
     
     strip.begin(); //Inicializacion de leds RGB
     strip.show();  //Visualiza leds RGB
+    Serial.println("Leds inicializados.");
+    
     Dynamixel.begin(1000000,PIN_DYNAMIXEL);  // Inicializa el servo a 1Mbps el Serial1 y con el Pin Control 4
+    Serial.println("Motores inicializados.");
+    
     irrecv.enableIRIn(); // Start the receiver IR
+    Serial.println("Infrarrojo inicializado.");
+    
     writeADXL(0x2D, 0x08);
     //  writeADXL(0x31, 0x00); //2g
     //  writeADXL(0x31, 0x01); //4g
     writeADXL(0x31, 0x02); //8g
     //  writeADXL(0x31, 0x03); //16g
-    
+    Serial.println("Acelerometro inicializado.");
    
     
     wifly.setupForUDP<HardwareSerial>(
@@ -148,115 +161,69 @@ void DIL::begin()
       false	// show debug information on Serial
     ); 
     wifly.printStatusInfo(); //print some debug information 
-    static char STRING_DISPLAY[15] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'D',
-            'I', 'S', 'P', 'L', 
-            'A' , 'Y' , 0x00
+    
+    static char STRING_DISPLAY[14] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'D', 'I', 'S', 'P', 'L', 'A' , 'Y' , 0x00
           };
     server.addCallback(STRING_DISPLAY,&setDisplay);
     
-    static char STRING_MIC[14] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'M',
-            'I', 'C', 'C', 'M', 
-            'D' , 0x00
+    static char STRING_MIC[13] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'M', 'I', 'C', 'C', 'M', 'D' , 0x00
           };
     server.addCallback(STRING_MIC,&setMic);
         
-    static char STRING_LANC[15] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'A', 'N', 'C', 'C', 
-            'M' , 'D', 0x00
+    static char STRING_LANC[14] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
           };
     server.addCallback(STRING_LANC,&setLanc);
     
-    static char STRING_LED0[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '0', 0x00
+    static char STRING_LED0[11] = {
+            '/', 'D', 'I', 'L', readEncoder(), '/',
+            'L', 'E', 'D', '0', 0x00
           };
     server.addCallback(STRING_LED0,&setLed0);
     
-    static char STRING_LED1[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '1', 0x00
+    static char STRING_LED1[11] = {
+            '/', 'D', 'I', 'L', readEncoder() , '/',
+            'L', 'E', 'D', '1', 0x00
           };
     server.addCallback(STRING_LED1,&setLed1);
     
-    static char STRING_LED2[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '2', 0x00
+    static char STRING_LED2[11] = {
+            '/', 'D', 'I', 'L', readEncoder() , '/',
+            'L', 'E', 'D', '2', 0x00
           };
     server.addCallback(STRING_LED2,&setLed2);
     
-    static char STRING_LED3[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '3', 0x00
+    static char STRING_LED3[11] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'L', 'E', 'D', '3', 0x00
           };
     server.addCallback(STRING_LED3,&setLed3);
     
-    static char STRING_LED4[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '4', 0x00
+    static char STRING_LED4[11] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/', 
+            'L', 'E', 'D', '4', 0x00
           };
     server.addCallback(STRING_LED4,&setLed4);
     
-    static char STRING_LED5[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'L',
-            'E', 'D', '5', 0x00
+    static char STRING_LED5[11] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'L', 'E', 'D', '5', 0x00
           };
     server.addCallback(STRING_LED5,&setLed5);
     
-    static char STRING_DYNAMIXEL[12] = {
-            '/', 'D', 'I', '&',
-            'L' , readEncoder() , '/', 'D',
-            'Y', 'N', 'A', 0x00
+    static char STRING_DYNAMIXEL[11] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'D', 'Y', 'N', 'A', 0x00
           };
           
     server.addCallback(STRING_DYNAMIXEL,&setDYNAMIXEL);
     
     delay(1000);
-  }
-
-boolean connect_mic = false;
-
-boolean DIL::ini_mic()
-  {
-    int cont=50;
-    if ((digitalRead(PIN_POWER_MIC))&&(!connect_mic))
-    {  
-      while(cont>0) //Repetimos el proceso 50 veces para asegurarnos que la sesion se inicia
-       {
-        mic.write(byte(0x00)); //El mando mandas 0s hasta que la gravadora responde con 0x80
-        //delay(100);
-        if (mic.available())
-        {
-         if(mic.read()==0x80)
-          {
-            mic.write(byte(0xA1));// Sersion iniciada
-            connect_mic = true;
-            return connect_mic;
-          }
-         else 
-         {
-           connect_mic = false;
-         }
-        }
-       cont--;
-       }
-    }
-    else if(!digitalRead(PIN_POWER_MIC))
-    {
-      connect_mic = false;
-    }
-    return connect_mic;
   }
   
 void DIL::writeDisplay(byte character)
@@ -304,11 +271,9 @@ void DIL::checkButton()
     {
        if ((readButton(i))!=(state[i])) 
        {
-         char STRING_BUTTON[16] = { // Message template
-            '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
-            'L' , readEncoder() , '/', 'B',
-            'U', 'T', 'T', 'O', 
-            'N' , B0 , B0, B0
+         char STRING_BUTTON[13] = { // Message template
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'B', 'U', 'T', 'T', 'O', 'N' , B0 
           };
          state[i] = readButton(i);
          client.sendInt((i<<4)|state[i], STRING_BUTTON);
@@ -379,11 +344,9 @@ void DIL::refreshADXL()
       accel[i] = (int)(accel[i] / lecturas);
       if ((accel[i]>=accel_ant[i] + RES)||(accel[i]<=accel_ant[i] - RES)) 
          {
-           char STRING_ACCEL[16] = { // Message template
-              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
-              'L' , readEncoder() , '/', 'A',
-              'C', 'C', 'E', 'L', 
-               i + 'X' , B0 , B0, B0
+           char STRING_ACCEL[13] = { // Message template
+              '/', 'D', 'I', 'L' , readEncoder() , '/',
+              'A', 'C', 'C', 'E', 'L', i + 'X' , B0
             };
            accel_ant[i] = accel[i];
            client.sendInt(accel[i], STRING_ACCEL);
@@ -396,26 +359,48 @@ void DIL::checkIR()
   if (irrecv.decode(&results))
    {
      irrecv.resume(); // Receive the next value
-     char STRING_IR[12] = { // Message template
-              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
-              'L' , readEncoder() , '/', 'I',
-              'R', B0 , B0, B0
+     char STRING_IR[10] = { // Message template
+              '/', 'D', 'I', 'L' , readEncoder() , '/',
+              'I', 'R', B0 , B0
       };
-     if (results.value!=0xFFFFFFFF) client.sendInt(results.value, STRING_IR);
-//     Serial.println(results.value, HEX);
+     if (results.value!=0xFFFFFFFF)
+      {
+        client.sendInt(results.value, STRING_IR);
+        Serial.println(results.value, HEX);
+      }
    }
 }
 
-void DIL::checkMic()
+boolean connect_mic = false;
+
+boolean DIL::checkMic()
 { 
-  ini_mic();
-//  if (mic.available())
-//   {
-////     irrecv.resume(); // Receive the next value
-////     char STRING_IR[12] = { // Message template
-////              '/', 'D', 'I', '&',   // PING MESSAGE TEMPLATE
-////              'L' , readEncoder() , '/', 'I',
-////              'R', B0 , B0, B0      };
-//        Serial.println(mic.read(), HEX);
-//   }
+    int cont=50;
+    if ((digitalRead(PIN_POWER_MIC))&&(!connect_mic))
+    {  
+      while(cont>0) //Repetimos el proceso 50 veces para asegurarnos que la sesion se inicia
+       {
+        mic.write(byte(0x00)); //El mando mandas 0s hasta que la gravadora responde con 0x80
+        //delay(100);
+        if (mic.available())
+        {
+         if(mic.read()==0x80)
+          {
+            mic.write(byte(0xA1));// Sersion iniciada
+            connect_mic = true;
+            return connect_mic;
+          }
+         else 
+         {
+           connect_mic = false;
+         }
+        }
+       cont--;
+       }
+    }
+    else if(!digitalRead(PIN_POWER_MIC))
+    {
+      connect_mic = false;
+    }
+    return connect_mic;
 }
