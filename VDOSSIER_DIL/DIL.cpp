@@ -358,7 +358,6 @@ void DIL::checkIR()
 {
   if (irrecv.decode(&results))
    {
-     irrecv.resume(); // Receive the next value
      char STRING_IR[10] = { // Message template
               '/', 'D', 'I', 'L' , readEncoder() , '/',
               'I', 'R', B0 , B0
@@ -366,8 +365,9 @@ void DIL::checkIR()
      if (results.value!=0xFFFFFFFF)
       {
         client.sendInt(results.value, STRING_IR);
-        Serial.println(results.value, HEX);
+//        Serial.println(results.value, HEX);
       }
+      irrecv.resume(); // Receive the next value
    }
 }
 
@@ -378,25 +378,25 @@ boolean DIL::checkMic()
     int cont=50;
     if ((digitalRead(PIN_POWER_MIC))&&(!connect_mic))
     {  
-      while(cont>0) //Repetimos el proceso 50 veces para asegurarnos que la sesion se inicia
-       {
-        mic.write(byte(0x00)); //El mando mandas 0s hasta que la gravadora responde con 0x80
-        //delay(100);
-        if (mic.available())
-        {
-         if(mic.read()==0x80)
-          {
-            mic.write(byte(0xA1));// Sersion iniciada
-            connect_mic = true;
-            return connect_mic;
-          }
-         else 
+        while(cont>0) //Repetimos el proceso 50 veces para asegurarnos que la sesion se inicia
          {
-           connect_mic = false;
+          mic.write(byte(0x00)); //El mando mandas 0s hasta que la gravadora responde con 0x80
+          //delay(100);
+          if (mic.available())
+          {
+           if(mic.read()==0x80)
+            {
+              mic.write(byte(0xA1));// Sersion iniciada
+              connect_mic = true;
+              return connect_mic;
+            }
+           else 
+           {
+             connect_mic = false;
+           }
+          }
+         cont--;
          }
-        }
-       cont--;
-       }
     }
     else if(!digitalRead(PIN_POWER_MIC))
     {
