@@ -6,6 +6,7 @@
 
 #include "Constants.h"
 
+#define WIFI_ENABLE true
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO_KHZ800);
 SoftwareSerial mic(10, 11); // RX, TX
@@ -13,19 +14,24 @@ SoftwareSerial mic(10, 11); // RX, TX
 // inicializa la libreria de recepcion y envio de datos por el infrarrojo
 IRrecv irrecv(PIN_IR); //Solo para el pin digital 3!!!
 decode_results results;
-IRsend irsend; //Solo para el pin digital 9!!!  
-
+IRsend irsend; //Solo para el pin digital 5!!!  
+DIL DIL_;
 //Configuracion del wifi
 WiFly wifly;
 OSCClient client(&wifly);
 OSCServer server(&wifly);
 
+void morsePrint(byte PIN, byte value)
+  {
+    for(int i=15; i>=0; i--) {digitalWrite(PIN, (MORSE[value]>>i)&0x0001); delay(10);}
+    digitalWrite(PIN, LOW);
+  }
 void setDisplay(OSCMessage *_mes){
   uint8_t Value=(byte)(_mes->getArgInt32(0));
   if (Value>15) Value = 15;
     for (int i = 0; i<14; i++)
     {
-      digitalWrite(dis[i], !code[Value][i]);
+      digitalWrite(dis[i], !codeDisplay[Value][i]);
     }  
 }
 
@@ -39,22 +45,111 @@ void setMic(OSCMessage *_mes){
   mic.write((byte)0x00); 
 } 
 
-void setDYNAMIXEL(OSCMessage *_mes){
+void setIRSend (OSCMessage *_mes){
   uint32_t Value=_mes->getArgInt32(0);
-  uint8_t ID = (uint8_t)(Value>>20);
-  uint8_t Position = (uint8_t)(Value>>10);
-  uint8_t Speed = (uint8_t)(Value);
+  uint32_t Value1=_mes->getArgInt32(1);
+  irsend.sendNEC((Value<<16)+Value1, 32);
+} 
+
+void setCode (OSCMessage *_mes){
+  uint32_t code=_mes->getArgInt32(0);
+  uint32_t vol=_mes->getArgInt32(1);
+  if (vol>RES_MCP) vol = RES_MCP;
+  DIL_.writeMCP(MCP1, 0x00, vol);
+  morsePrint(PIN_AUD, code);
+} 
+
+void setDYNAMIXEL(OSCMessage *_mes){
+  uint32_t ID=_mes->getArgInt32(0);
+  uint32_t Position=_mes->getArgInt32(1);
+  uint32_t Speed=_mes->getArgInt32(2);
   Dynamixel.moveSpeed(ID, Position, Speed);  
   //ID – numero de identificación del servomotor
   //Position – posición del servo de 0 a 1023 (0 a 300 grados)
   //Speed – velocidad a la que se moverá el servo 0 a 1023
 } 
 
+void lowWait(int pin) {
+  byte in;
+  unsigned long start = millis();
+  do {
+    in = digitalRead(pin);
+  } 
+  while (in && millis() < start + MAX_WAIT_MILLISEC );
+}
+
+void frameStartBitWait() {
+  // finds the start of a telegram/frame
+  unsigned long usec = 0;
+  unsigned long start = millis();
+  do {
+    usec = pulseIn(LANC_X_PIN,HIGH);
+  } 
+  while (usec < 1450  && millis() < start + MAX_WAIT_MILLISEC); //  Frame Lengths are 1200-1400 dep. on device
+}
+
+void writeByte(int pin, byte value, unsigned uSec /* bit width */) {
+  delayMicroseconds(uSec); // wait for stop bit
+  pinMode(LANC_X_PIN,OUTPUT);
+  for (int i = 0; i < 8; i++) {
+    boolean bit = value & 0x1;
+    digitalWrite(pin,!bit); // NOT (!) pin because all data is inverted in LANC
+    value >>= 1;
+    delayMicroseconds(uSec);
+  }
+
+  //digitalWrite(pin,HIGH);
+  //delayMicroseconds(uSec);
+
+  pinMode(LANC_X_PIN,INPUT);    
+}
+
+void SendCode(byte type,byte code) {
+  /* Okay i really don't know why i have to send this twice biut it works:
+     Sonys need 2 cannons 3
+  */
+    frameStartBitWait();
+    writeByte(LANC_X_PIN,type,bitMicroSeconds);
+    lowWait(LANC_X_PIN);
+    writeByte(LANC_X_PIN,code,bitMicroSeconds);
+    
+    frameStartBitWait();
+    writeByte(LANC_X_PIN,type,bitMicroSeconds);
+    lowWait(LANC_X_PIN);
+    writeByte(LANC_X_PIN,code,bitMicroSeconds);
+    
+    frameStartBitWait();
+    writeByte(LANC_X_PIN,type,bitMicroSeconds);
+    lowWait(LANC_X_PIN);
+    writeByte(LANC_X_PIN,code,bitMicroSeconds);
+}
+
+byte readByte(int pin,unsigned long uSec /* bit width*/ ) {
+  byte result = 0;
+  delayMicroseconds(uSec * 1.5); // skips the Start Bit and Land in the midlle of the first byte
+
+  for (int i = 0; i < 8; i++) {
+    if (digitalRead(pin) == LOW) { // == *LOW* because bits inverted in LANC 
+      result++;
+    }
+    result <<= 1;
+    delayMicroseconds(uSec);
+  }
+  delayMicroseconds(0.5*uSec);  
+  return result; // return happens at end of last (8ths) bit
+}
+
 void setLanc(OSCMessage *_mes){
+  TIMER_DISABLE_INTR;
   uint16_t Value_Send=_mes->getArgInt32(0);
-  Serial3.println(Value_Send, HEX);
-  Serial3.println();
-  Serial3.println();
+  uint16_t repeat =_mes->getArgInt32(1);
+  
+  for (int i=0; i<abs(repeat); i++)
+    {
+      SendCode(Value_Send>>8, Value_Send&0x00FF);
+      delay(10);
+    }
+  TIMER_ENABLE_INTR;
 } 
 
 void ledRGB(byte led, byte red, byte green, byte blue)
@@ -63,37 +158,14 @@ void ledRGB(byte led, byte red, byte green, byte blue)
      strip.show();  //Visualiza leds RGB
   }
   
-void setLed0(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(0, Value>>16, Value>>8, Value);
-} 
-
-void setLed1(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(1, Value>>16, Value>>8, Value);
-} 
-void setLed2(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(2, Value>>16, Value>>8, Value);
-} 
-void setLed3(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(3, Value>>16, Value>>8, Value);
-} 
-void setLed4(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(4, Value>>16, Value>>8, Value);
-} 
-void setLed5(OSCMessage *_mes){
-  uint32_t Value=_mes->getArgInt32(0);
-  ledRGB(5, Value>>16, Value>>8, Value);
+void setLed(OSCMessage *_mes){
+  ledRGB(_mes->getArgInt32(0), _mes->getArgInt32(1), _mes->getArgInt32(2), _mes->getArgInt32(3));
 } 
 
 void DIL::begin()
   {
     Serial.begin(9600); //USB inicializado a 9600
     Serial2.begin(9600); //WIFI inicializado a 9600
-    Serial3.begin(9600); //LANC inicializado a 9600
     mic.begin(2400);  //Control del microfono inicializado a 2400
     Serial.println("Puertos serie inicializados.");
     
@@ -104,10 +176,6 @@ void DIL::begin()
       digitalWrite(i, HIGH);
     }
     Serial.println("Pulsadores inicializados.");
-    
-    pinMode(PIN_POWER_MIC, INPUT);
-    digitalWrite(PIN_POWER_MIC, LOW);
-    Serial.println("Puerto del microfono en espera.");
     
     //Inicializacion pines del encoder
     for (int i = 0; i<4; i++)
@@ -127,7 +195,16 @@ void DIL::begin()
     Serial.println("Display inicializado.");
     
     Wire.begin();       //Inicializo bus I2C
+    TWBR = ((F_CPU / TWI_FREQ) - 16) / 2;  
     Serial.println("Bus I2c inicializado.");
+    
+    pinMode(PIN_POWER_MIC, INPUT);
+    digitalWrite(PIN_POWER_MIC, LOW);
+    writeGAIN(10000);
+    Serial.println("Puerto del microfono en espera.");
+    
+    pinMode(PIN_AUD, OUTPUT);
+    digitalWrite(PIN_AUD, LOW);
     
     strip.begin(); //Inicializacion de leds RGB
     strip.show();  //Visualiza leds RGB
@@ -145,22 +222,26 @@ void DIL::begin()
     writeADXL(0x31, 0x02); //8g
     //  writeADXL(0x31, 0x03); //16g
     Serial.println("Acelerometro inicializado.");
-   
     
-    wifly.setupForUDP<HardwareSerial>(
-      &Serial2,   //the serial you want to use (this can also be a software serial)
-      115200, // if you use a hardware serial, I would recommend the full 115200
-      true,	// should we try some other baudrates if the currently selected one fails?
-      mySSID,  //Your Wifi Name (SSID)
-      myPassword, //Your Wifi Password 
-      "DI&L",                 // Device name for identification in the network
-      0,         // IP Adress of the Wifly. if 0 (without quotes), it will use dhcp to get an ip
-      localPort,                    // WiFly receive port
-      IP,       // Where to send outgoing Osc messages. "255.255.255.255" will send to all hosts in the subnet
-      outPort,                     // outgoing port
-      false	// show debug information on Serial
-    ); 
-    wifly.printStatusInfo(); //print some debug information 
+    pinMode(LANC_X_PIN, INPUT);
+    Serial.println("LANC inicializado.");
+    
+    #if WIFI_ENABLE
+        wifly.setupForUDP<HardwareSerial>(
+          &Serial2,   //the serial you want to use (this can also be a software serial)
+          115200, // if you use a hardware serial, I would recommend the full 115200
+          true,	// should we try some other baudrates if the currently selected one fails?
+          mySSID,  //Your Wifi Name (SSID)
+          myPassword, //Your Wifi Password 
+          "DI&L",                 // Device name for identification in the network
+          0,         // IP Adress of the Wifly. if 0 (without quotes), it will use dhcp to get an ip
+          localPort,                    // WiFly receive port
+          IP,       // Where to send outgoing Osc messages. "255.255.255.255" will send to all hosts in the subnet
+          outPort,                     // outgoing port
+          false	// show debug information on Serial
+        ); 
+        wifly.printStatusInfo(); //print some debug information 
+    #endif
     
     static char STRING_DISPLAY[14] = {
             '/', 'D', 'I', 'L' , readEncoder() , '/',
@@ -179,51 +260,31 @@ void DIL::begin()
             'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
           };
     server.addCallback(STRING_LANC,&setLanc);
+
+    static char STRING_IRSEND[13] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'I', 'R', 'S', 'E', 'N', 'D', 0x00
+          };
+    server.addCallback(STRING_IRSEND,&setIRSend);
     
-    static char STRING_LED0[11] = {
+    static char STRING_LED[10] = {
             '/', 'D', 'I', 'L', readEncoder(), '/',
-            'L', 'E', 'D', '0', 0x00
+            'L', 'E', 'D', 0x00
           };
-    server.addCallback(STRING_LED0,&setLed0);
-    
-    static char STRING_LED1[11] = {
-            '/', 'D', 'I', 'L', readEncoder() , '/',
-            'L', 'E', 'D', '1', 0x00
-          };
-    server.addCallback(STRING_LED1,&setLed1);
-    
-    static char STRING_LED2[11] = {
-            '/', 'D', 'I', 'L', readEncoder() , '/',
-            'L', 'E', 'D', '2', 0x00
-          };
-    server.addCallback(STRING_LED2,&setLed2);
-    
-    static char STRING_LED3[11] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/',
-            'L', 'E', 'D', '3', 0x00
-          };
-    server.addCallback(STRING_LED3,&setLed3);
-    
-    static char STRING_LED4[11] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/', 
-            'L', 'E', 'D', '4', 0x00
-          };
-    server.addCallback(STRING_LED4,&setLed4);
-    
-    static char STRING_LED5[11] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/',
-            'L', 'E', 'D', '5', 0x00
-          };
-    server.addCallback(STRING_LED5,&setLed5);
-    
+    server.addCallback(STRING_LED,&setLed);
+        
     static char STRING_DYNAMIXEL[11] = {
             '/', 'D', 'I', 'L' , readEncoder() , '/',
             'D', 'Y', 'N', 'A', 0x00
           };
-          
     server.addCallback(STRING_DYNAMIXEL,&setDYNAMIXEL);
     
-    delay(1000);
+    static char STRING_CODE[11] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
+            'C', 'O', 'D', 'E', 0x00
+          }; 
+    server.addCallback(STRING_CODE,&setCode);
+   
   }
   
 void DIL::writeDisplay(byte character)
@@ -231,7 +292,7 @@ void DIL::writeDisplay(byte character)
   if (character>15) character = 15;
     for (int i = 0; i<14; i++)
     {
-      digitalWrite(dis[i], !code[character][i]);
+      digitalWrite(dis[i], !codeDisplay[character][i]);
     }    
 }
   
@@ -253,14 +314,11 @@ char DIL::readEncoder()
     return value;
   }
 
-byte DIL::readBattery()
-  {
-   return(map(VCC/1023.*analogRead(PIN_BAT), 3000, 4200, 0, 100)); 
-  }
-
 void DIL::checkOSC()
   {
-    server.availableCheck(2);
+    #if WIFI_ENABLE
+      server.availableCheck(2);
+    #endif
   }
   
 boolean state[6] = {0,0,0,0,0,0};
@@ -276,7 +334,13 @@ void DIL::checkButton()
             'B', 'U', 'T', 'T', 'O', 'N' , B0 
           };
          state[i] = readButton(i);
-         client.sendInt((i<<4)|state[i], STRING_BUTTON);
+         #if WIFI_ENABLE
+          OSCMessage loacal_mes;
+          loacal_mes.beginMessage(STRING_BUTTON);
+          loacal_mes.addArgInt32(i);
+          loacal_mes.addArgInt32(state[i]);
+          client.send(&loacal_mes);
+         #endif
        }
     }
   }
@@ -323,7 +387,7 @@ int accel[3] ={0,0,0};
 void DIL::refreshADXL()
   {
     #define lim 512
-    #define RES 5
+    #define RES_ADXL 5
     int temp[3] ={0,0,0};
     int lecturas=10;
     byte buffADXL[6] ;    //6 bytes buffer for saving data read from the device
@@ -339,19 +403,33 @@ void DIL::refreshADXL()
       temp[2] = map(temp[2],-lim,lim,0,1023); 
       for (int j=0; j<3; j++) accel[j] = (int)(temp[j] + accel[j]);
     }
+    boolean send_osc = false;
     for (int i=0; i<3; i++) 
     {
       accel[i] = (int)(accel[i] / lecturas);
-      if ((accel[i]>=accel_ant[i] + RES)||(accel[i]<=accel_ant[i] - RES)) 
+      if ((accel[i]>=accel_ant[i] + RES_ADXL)||(accel[i]<=accel_ant[i] - RES_ADXL)) 
          {
-           char STRING_ACCEL[13] = { // Message template
-              '/', 'D', 'I', 'L' , readEncoder() , '/',
-              'A', 'C', 'C', 'E', 'L', i + 'X' , B0
-            };
+
            accel_ant[i] = accel[i];
-           client.sendInt(accel[i], STRING_ACCEL);
+           send_osc = true;
+//           client.sendInt(accel[i], STRING_ACCEL);
          }
     }
+    if (send_osc)
+      {
+        char STRING_ACCEL[12] = { // Message template
+          '/', 'D', 'I', 'L' , readEncoder() , '/',
+          'A', 'C', 'C', 'E', 'L', B0
+        };
+        #if WIFI_ENABLE
+          OSCMessage loacal_mes;
+          loacal_mes.beginMessage(STRING_ACCEL);
+          loacal_mes.addArgInt32(accel[0]);
+          loacal_mes.addArgInt32(accel[1]);
+          loacal_mes.addArgInt32(accel[2]);
+          client.send(&loacal_mes);
+        #endif
+      }
   }
   
 void DIL::checkIR()
@@ -364,11 +442,35 @@ void DIL::checkIR()
       };
      if (results.value!=0xFFFFFFFF)
       {
-        client.sendInt(results.value, STRING_IR);
-//        Serial.println(results.value, HEX);
+        #if WIFI_ENABLE
+          OSCMessage loacal_mes;
+          loacal_mes.beginMessage(STRING_IR);
+          loacal_mes.addArgInt32(results.value>>16);
+          loacal_mes.addArgInt32(results.value&0x0000FFFF);
+          client.send(&loacal_mes);
+        #endif
       }
       irrecv.resume(); // Receive the next value
    }
+}
+
+int bat_ant = 0;
+void DIL::checkBattery()
+{
+     int bat = analogRead(PIN_BAT)*(VCC/1023.); 
+     if ((bat>(bat_ant + 20))||(bat<(bat_ant - 20)))
+       {
+         char STRING_BAT[10] = { // Message template
+                  '/', 'D', 'I', 'L' , readEncoder() , '/',
+                  'B', 'A', 'T', B0
+          };
+          #if WIFI_ENABLE
+            client.sendInt(bat, STRING_BAT);
+            bat_ant = bat;
+          #endif
+          Serial.print("Bat: ");
+          Serial.println(bat);
+       }
 }
 
 boolean connect_mic = false;
@@ -404,3 +506,94 @@ boolean DIL::checkMic()
     }
     return connect_mic;
 }
+
+
+
+void DIL::writeMCP(byte deviceaddress, byte address, int data ) {
+  if (data>RES_MCP) data=RES_MCP;
+  byte cmd_byte=((address<<4)&B11110000)|bitRead(data, 8);
+  Wire.beginTransmission(deviceaddress);
+  Wire.write(cmd_byte);
+  Wire.write(lowByte(data));
+  Wire.endTransmission();
+  Wire.flush();
+  delay(4);
+}
+
+uint16_t DIL::readMCP(int deviceaddress, uint16_t address ) {
+  byte rdata = 0xFF;
+  uint16_t  data = 0x0000;
+  byte cmd_byte =(address<<4)|B00001100;
+  Wire.beginTransmission(deviceaddress);
+  Wire.write(cmd_byte);
+  Wire.endTransmission();
+  Wire.requestFrom(deviceaddress,2);
+  Wire.endTransmission();                 // stop transmitting
+  unsigned long time = millis();
+  while (!Wire.available()) if ((millis() - time)>500) return 0x00;
+  rdata = Wire.read(); 
+  data=rdata<<8;
+  while (!Wire.available()); 
+  rdata = Wire.read(); 
+  Wire.flush();
+  data=data|rdata;
+  return data;
+}
+
+float kr1= ((float)P1*1000)/RES_MCP;    //  Resistance conversion Constant for the digital pot.
+
+void DIL::writeRGAIN(byte device, long resistor) {
+  int data=0x00;
+  data = (int)(resistor/kr1);
+  writeMCP(MCP2, device, data);
+}
+
+float DIL::readRGAIN(byte device)
+{
+    return (kr1*readMCP(MCP2, device));    // Returns Resistance (Ohms)
+}
+
+void DIL::writeGAIN(long value)
+{
+  if (value == 100)
+  {
+    writeRGAIN(0x00, 10000);
+    writeRGAIN(0x01, 10000);
+  }
+  else if (value == 1000)
+  {
+    writeRGAIN(0x00, 10000);
+    writeRGAIN(0x01, 100000);
+  }
+  else if (value == 10000)
+        {
+           writeRGAIN(0x00, 100000);
+           writeRGAIN(0x01, 100000);
+        }
+  delay(100);
+}
+
+float DIL::readGAIN()
+{
+  return (readRGAIN(0x00)/1000)*(readRGAIN(0x01)/1000);
+} 
+
+int vol_ant = 0;
+void DIL::checkAUDIO()
+{
+     int vol = analogRead(PIN_VOL)*(VCC/1023.); 
+     if ((vol>(vol_ant + 20))||(vol<(vol_ant - 20)))
+       {
+         char STRING_AUDIO[12] = { // Message template
+                  '/', 'D', 'I', 'L' , readEncoder() , '/',
+                  'A', 'U', 'D', 'I', 'O',B0
+          };
+         #if WIFI_ENABLE
+            client.sendInt(vol, STRING_AUDIO);
+            vol_ant = vol;
+         #endif
+       }  
+}
+
+
+

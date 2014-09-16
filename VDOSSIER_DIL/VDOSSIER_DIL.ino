@@ -11,5 +11,7 @@ void loop(){
     DIL.checkButton();
     DIL.refreshADXL();
     DIL.checkIR();
-    DIL.checkMic();    
+    DIL.checkMic(); 
+    DIL.checkBattery(); 
+    DIL.checkAUDIO();
 }
