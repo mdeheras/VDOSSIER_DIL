@@ -9,9 +9,9 @@ void setup(){
 void loop(){
     DIL.checkOSC();
     DIL.checkButton();
-    DIL.refreshADXL();
-    DIL.checkIR();
+//    DIL.refreshADXL();
+//    DIL.checkIR();
     DIL.checkMic(); 
-    DIL.checkBattery(); 
-    DIL.checkAUDIO();
+//    DIL.checkBattery(); 
+//    DIL.checkAUDIO();
 }

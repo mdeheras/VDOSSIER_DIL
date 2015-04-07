@@ -7,6 +7,8 @@
 #include "Constants.h"
 
 #define WIFI_ENABLE true
+#define ENCODER_ENABLE false
+#define VALUE_ENCODER '0'
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO_KHZ800);
 SoftwareSerial mic(10, 11); // RX, TX
@@ -24,6 +26,7 @@ OSCServer server(&wifly);
 void morsePrint(byte PIN, byte value)
   {
     for(int i=15; i>=0; i--) {digitalWrite(PIN, (MORSE[value]>>i)&0x0001); delay(10);}
+//     Serial.println();
     digitalWrite(PIN, LOW);
   }
 void setDisplay(OSCMessage *_mes){
@@ -162,6 +165,43 @@ void setLed(OSCMessage *_mes){
   ledRGB(_mes->getArgInt32(0), _mes->getArgInt32(1), _mes->getArgInt32(2), _mes->getArgInt32(3));
 } 
 
+boolean rec_all = false;
+
+void setREC(OSCMessage *_mes){
+  if (!rec_all)
+    {
+      TIMER_DISABLE_INTR;
+      SendCode(0x18, 0x33);
+      delay(10);
+      mic.write((byte)0x81);
+      mic.write((byte)0x00);
+      mic.write((byte)0x80);
+      mic.write((byte)0x00); 
+      delay(100);
+      mic.write((byte)0x81);
+      mic.write((byte)0x00);
+      mic.write((byte)0x80);
+      mic.write((byte)0x00); 
+      rec_all = true;  
+      TIMER_ENABLE_INTR;
+    }
+} 
+
+void setSTOP(OSCMessage *_mes){
+    if (rec_all)
+    {
+      TIMER_DISABLE_INTR;
+      SendCode(0x18, 0x33);
+      delay(10);
+      mic.write((byte)0x84);
+      mic.write((byte)0x00);
+      mic.write((byte)0x80);
+      mic.write((byte)0x00); 
+      rec_all = false;  
+      TIMER_ENABLE_INTR;
+    }
+} 
+
 void DIL::begin()
   {
     Serial.begin(9600); //USB inicializado a 9600
@@ -249,29 +289,50 @@ void DIL::begin()
           };
     server.addCallback(STRING_DISPLAY,&setDisplay);
     
-    static char STRING_MIC[13] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/',
+//    static char STRING_MIC[13] = {
+//            '/', 'D', 'I', 'L' , readEncoder() , '/',
+//            'M', 'I', 'C', 'C', 'M', 'D' , 0x00
+//          };
+//    server.addCallback(STRING_MIC,&setMic);
+    
+    static char STRING_MIC_ALL[13] = {
+            '/', 'D', 'I', 'L' , 'X' , '/',
             'M', 'I', 'C', 'C', 'M', 'D' , 0x00
           };
-    server.addCallback(STRING_MIC,&setMic);
+    server.addCallback(STRING_MIC_ALL,&setMic);
         
-    static char STRING_LANC[14] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/',
+//    static char STRING_LANC[14] = {
+//            '/', 'D', 'I', 'L' , readEncoder() , '/',
+//            'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
+//          };
+//    server.addCallback(STRING_LANC,&setLanc);
+
+    static char STRING_LANC_ALL[14] = {
+            '/', 'D', 'I', 'L' , 'X' , '/',
             'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
           };
-    server.addCallback(STRING_LANC,&setLanc);
+    server.addCallback(STRING_LANC_ALL,&setLanc);
 
+    server.addCallback("/DILX/RECALL",&setREC);
+    server.addCallback("/DILX/STOPALL",&setSTOP);
+    
     static char STRING_IRSEND[13] = {
             '/', 'D', 'I', 'L' , readEncoder() , '/',
             'I', 'R', 'S', 'E', 'N', 'D', 0x00
           };
     server.addCallback(STRING_IRSEND,&setIRSend);
     
-    static char STRING_LED[10] = {
-            '/', 'D', 'I', 'L', readEncoder(), '/',
+//    static char STRING_LED[10] = {
+//            '/', 'D', 'I', 'L', readEncoder(), '/',
+//            'L', 'E', 'D', 0x00
+//          };
+//    server.addCallback(STRING_LED,&setLed);
+    
+    static char STRING_LED_ALL[10] = {
+            '/', 'D', 'I', 'L', 'X', '/',
             'L', 'E', 'D', 0x00
           };
-    server.addCallback(STRING_LED,&setLed);
+    server.addCallback(STRING_LED_ALL,&setLed);
         
     static char STRING_DYNAMIXEL[11] = {
             '/', 'D', 'I', 'L' , readEncoder() , '/',
@@ -279,11 +340,13 @@ void DIL::begin()
           };
     server.addCallback(STRING_DYNAMIXEL,&setDYNAMIXEL);
     
-    static char STRING_CODE[11] = {
-            '/', 'D', 'I', 'L' , readEncoder() , '/',
-            'C', 'O', 'D', 'E', 0x00
-          }; 
-    server.addCallback(STRING_CODE,&setCode);
+//    static char STRING_CODE[11] = {
+//            '/', 'D', 'I', 'L' , readEncoder() , '/',
+//            'C', 'O', 'D', 'E', 0x00
+//          }; 
+//    server.addCallback(STRING_CODE,&setCode);
+
+    server.addCallback("/DILX/CODE",&setCode);
    
   }
   
@@ -304,14 +367,18 @@ boolean DIL::readButton(byte button)
 
 char DIL::readEncoder()
   {
-    char value = 0;
-    for (int i = 0; i<4; i++)
-    {
-      value = value + !digitalRead(enc[i])*encval[i];
-    }
-    if (value<10) value=value+48;
-    else value=value+55;
-    return value;
+    #if ENCODER_ENABLE
+      char value = 0;
+      for (int i = 0; i<4; i++)
+      {
+        value = value + !digitalRead(enc[i])*encval[i];
+      }
+      if (value<10) value=value+48;
+      else value=value+55;
+      return value;
+    #else 
+      return VALUE_ENCODER;
+    #endif
   }
 
 void DIL::checkOSC()
