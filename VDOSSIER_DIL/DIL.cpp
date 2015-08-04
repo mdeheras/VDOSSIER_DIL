@@ -4,6 +4,7 @@
 #include "Adafruit_NeoPixel.h"
 #include "IRremote.h"
 
+
 #include "Constants.h"
 
 #define WIFI_ENABLE true
@@ -23,12 +24,6 @@ WiFly wifly;
 OSCClient client(&wifly);
 OSCServer server(&wifly);
 
-void morsePrint(byte PIN, byte value)
-  {
-    for(int i=15; i>=0; i--) {digitalWrite(PIN, (MORSE[value]>>i)&0x0001); delay(10);}
-//     Serial.println();
-    digitalWrite(PIN, LOW);
-  }
 void setDisplay(OSCMessage *_mes){
   uint8_t Value=(byte)(_mes->getArgInt32(0));
   if (Value>15) Value = 15;
@@ -59,7 +54,7 @@ void setCode (OSCMessage *_mes){
   uint32_t vol=_mes->getArgInt32(1);
   if (vol>RES_MCP) vol = RES_MCP;
   DIL_.writeMCP(MCP1, 0x00, vol);
-  morsePrint(PIN_AUD, code);
+  tone(PIN_AUD, melody[code], 100);
 } 
 
 void setDYNAMIXEL(OSCMessage *_mes){
@@ -167,9 +162,22 @@ void setLed(OSCMessage *_mes){
 
 boolean rec_all = false;
 
-void setREC(OSCMessage *_mes){
-  if (!rec_all)
+byte color_led[6][3] = {{ 0,0,0 },
+                        { 0,0,0 },
+                        { 0,0,0 },
+                        { 0,0,0 },
+                        { 0,0,0 },
+                        { 0,0,0 }};  
+                        
+void RECALL(byte led)
+  {
+    if (!rec_all)
     {
+      color_led[led][0] = 0;
+      color_led[led][1] = 0;
+      color_led[led][2] = 255;
+      strip.setPixelColor(led, color_led[led][0], color_led[led][1], color_led[led][2]);
+      strip.show();  //Visualiza leds RGB
       TIMER_DISABLE_INTR;
       SendCode(0x18, 0x33);
       delay(10);
@@ -184,12 +192,27 @@ void setREC(OSCMessage *_mes){
       mic.write((byte)0x00); 
       rec_all = true;  
       TIMER_ENABLE_INTR;
+      color_led[led][0] = 255;
+      color_led[led][1] = 0;
+      color_led[led][2] = 0;
+      strip.setPixelColor(led, color_led[led][0], color_led[led][1], color_led[led][2]);
+      strip.show();  //Visualiza leds RGB
     }
+  }
+  
+void setREC(OSCMessage *_mes){
+    RECALL(0);
 } 
 
-void setSTOP(OSCMessage *_mes){
+void STOPALL(byte led)
+  {
     if (rec_all)
     {
+      color_led[led][0] = 0;
+      color_led[led][1] = 0;
+      color_led[led][2] = 255;
+      strip.setPixelColor(led, color_led[led][0], color_led[led][1], color_led[led][2]);
+      strip.show();  //Visualiza leds RGB
       TIMER_DISABLE_INTR;
       SendCode(0x18, 0x33);
       delay(10);
@@ -199,7 +222,19 @@ void setSTOP(OSCMessage *_mes){
       mic.write((byte)0x00); 
       rec_all = false;  
       TIMER_ENABLE_INTR;
+      for (int i = 0; i<6; i++)
+        {
+          color_led[i][0] = 0;
+          color_led[i][1] = 0;
+          color_led[i][2] = 0;
+          strip.setPixelColor(i, color_led[i][0], color_led[i][1], color_led[i][2]);
+        }
+      strip.show();  //Visualiza leds RGB
     }
+  }
+  
+void setSTOP(OSCMessage *_mes){
+   STOPALL(0);
 } 
 
 void DIL::begin()
@@ -289,29 +324,20 @@ void DIL::begin()
           };
     server.addCallback(STRING_DISPLAY,&setDisplay);
     
-//    static char STRING_MIC[13] = {
-//            '/', 'D', 'I', 'L' , readEncoder() , '/',
-//            'M', 'I', 'C', 'C', 'M', 'D' , 0x00
-//          };
-//    server.addCallback(STRING_MIC,&setMic);
-    
-    static char STRING_MIC_ALL[13] = {
-            '/', 'D', 'I', 'L' , 'X' , '/',
+    static char STRING_MIC[13] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
             'M', 'I', 'C', 'C', 'M', 'D' , 0x00
           };
-    server.addCallback(STRING_MIC_ALL,&setMic);
+          
+    server.addCallback(STRING_MIC,&setMic);
+    server.addCallback("/DILX/MICCMD",&setMic);
         
-//    static char STRING_LANC[14] = {
-//            '/', 'D', 'I', 'L' , readEncoder() , '/',
-//            'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
-//          };
-//    server.addCallback(STRING_LANC,&setLanc);
-
-    static char STRING_LANC_ALL[14] = {
-            '/', 'D', 'I', 'L' , 'X' , '/',
+    static char STRING_LANC[14] = {
+            '/', 'D', 'I', 'L' , readEncoder() , '/',
             'L', 'A', 'N', 'C', 'C', 'M' , 'D', 0x00
           };
-    server.addCallback(STRING_LANC_ALL,&setLanc);
+    server.addCallback(STRING_LANC,&setLanc);
+    server.addCallback("/DILX/LANCCMD",&setLanc);
 
     server.addCallback("/DILX/RECALL",&setREC);
     server.addCallback("/DILX/STOPALL",&setSTOP);
@@ -322,17 +348,13 @@ void DIL::begin()
           };
     server.addCallback(STRING_IRSEND,&setIRSend);
     
-//    static char STRING_LED[10] = {
-//            '/', 'D', 'I', 'L', readEncoder(), '/',
-//            'L', 'E', 'D', 0x00
-//          };
-//    server.addCallback(STRING_LED,&setLed);
-    
-    static char STRING_LED_ALL[10] = {
-            '/', 'D', 'I', 'L', 'X', '/',
+    static char STRING_LED[10] = {
+            '/', 'D', 'I', 'L', readEncoder(), '/',
             'L', 'E', 'D', 0x00
           };
-    server.addCallback(STRING_LED_ALL,&setLed);
+          
+    server.addCallback(STRING_LED,&setLed);
+    server.addCallback("/DILX/LED",&setLed);
         
     static char STRING_DYNAMIXEL[11] = {
             '/', 'D', 'I', 'L' , readEncoder() , '/',
@@ -407,6 +429,48 @@ void DIL::checkButton()
           loacal_mes.addArgInt32(i);
           loacal_mes.addArgInt32(state[i]);
           client.send(&loacal_mes);
+          if (state[i])
+            {
+              strip.setPixelColor(i, 0, 0, 255);
+              strip.show();  //Visualiza leds RGB
+              if (i==0)
+                {
+                  if (!rec_all)
+                    {
+                      delay(100);
+                      loacal_mes.beginMessage("/DILX/RECALL");
+                      client.send(&loacal_mes);
+                      RECALL(i);
+                    }
+                  else
+                    {
+                      delay(100);
+                      loacal_mes.beginMessage("/DILX/STOPALL");
+                      client.send(&loacal_mes);
+                      STOPALL(i);
+                    }
+                }
+               else if (i==2)
+                {
+                  delay(100);
+                  loacal_mes.beginMessage("/DILX/CODE");
+                  loacal_mes.addArgInt32(88);
+                  loacal_mes.addArgInt32(255);
+                  client.send(&loacal_mes);
+                  DIL_.writeMCP(MCP1, 0x00, 255);
+                  tone(PIN_AUD, melody[88], 100);
+                }
+               else if (i==5)
+                {
+                  if (!rec_all) RECALL(i);
+                  else STOPALL(i);
+                }
+            }
+           else 
+             {
+                strip.setPixelColor(i, color_led[i][0], color_led[i][1], color_led[i][2]);
+                strip.show();  //Visualiza leds RGB
+             }
          #endif
        }
     }
