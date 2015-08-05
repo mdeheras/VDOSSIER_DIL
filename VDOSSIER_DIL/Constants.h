@@ -1,15 +1,12 @@
 #include "pitches.h"
 
-//const char mySSID[] = "DI&L";  
-//const char myPassword[] = "vdossier";
-//const char *IP = "192.168.1.255";
+const char mySSID[] = "DI&L";  
+const char myPassword[] = "vdossier";
+const char *IP = "192.168.1.255";
 
-const char mySSID[] = "hangar_lab";  
-const char myPassword[] = "labinteractius";
-const char *IP = "172.26.255.255";
-
-const uint16_t outPort = 8000;
-const uint16_t localPort = 9000;   
+//const char mySSID[] = "hangar_lab";  
+//const char myPassword[] = "labinteractius";
+//const char *IP = "172.26.255.255";
 
 #define PIN_WS2812 43
 #define PIN_DYNAMIXEL 4

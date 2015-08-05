@@ -8,8 +8,6 @@
 #include "Constants.h"
 
 #define WIFI_ENABLE true
-#define ENCODER_ENABLE false
-#define VALUE_ENCODER '0'
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO_KHZ800);
 SoftwareSerial mic(10, 11); // RX, TX
@@ -24,6 +22,41 @@ WiFly wifly;
 OSCClient client(&wifly);
 OSCServer server(&wifly);
 
+void sendAudio(byte note, byte vol)
+  {
+    static char STRING_CODE[24] = {
+                          '/', 'D', 'I', 'L' ,
+                          'X' , '/','C', 'O', 
+                          'D', 'E', 0x00, 0x00,
+                          ',', 'i', 'i', 0x00,
+                           0x00, 0x00, 0x00, note,
+                           0x00, 0x00, 0x00, vol,
+                        };
+    for (int i=0; i<24; i++) Serial2.write(STRING_CODE[i]);
+  }
+
+void sendREC()
+  {
+    static char STRING_CODE[16] = {
+                          '/', 'D', 'I', 'L' ,
+                          'X' , '/','R', 'E', 
+                          'C', 'A', 'L', 'L',
+                          0x00, 0x00, 0x00, 0x00
+                        };
+    for (int i=0; i<16; i++) Serial2.write(STRING_CODE[i]);
+  }
+  
+void sendSTOP()
+  {
+     static char STRING_CODE[16] = {
+                          '/', 'D', 'I', 'L' ,
+                          'X' , '/','S', 'T', 
+                          'O', 'P', 'A', 'L',
+                          'L', 0x00, 0x00, 0x00
+                        };
+    for (int i=0; i<16; i++) Serial2.write(STRING_CODE[i]);
+  }  
+  
 void setDisplay(OSCMessage *_mes){
   uint8_t Value=(byte)(_mes->getArgInt32(0));
   if (Value>15) Value = 15;
@@ -49,12 +82,15 @@ void setIRSend (OSCMessage *_mes){
   irsend.sendNEC((Value<<16)+Value1, 32);
 } 
 
-void setCode (OSCMessage *_mes){
+void setAudio (OSCMessage *_mes){
   uint32_t code=_mes->getArgInt32(0);
   uint32_t vol=_mes->getArgInt32(1);
-  if (vol>RES_MCP) vol = RES_MCP;
-  DIL_.writeMCP(MCP1, 0x00, vol);
-  tone(PIN_AUD, melody[code], 100);
+  if (DIL_.readEncoder() == '0') sendAudio(code, vol);
+  for(int i=0; i<vol; i++)
+    {
+      tone(PIN_AUD, melody[code], 100);
+      delay(500);
+    }
 } 
 
 void setDYNAMIXEL(OSCMessage *_mes){
@@ -201,11 +237,17 @@ void RECALL(byte led)
   }
   
 void setREC(OSCMessage *_mes){
+    if (DIL_.readEncoder()=='0') 
+      {
+        delay(10);
+        sendREC();
+      }
     RECALL(0);
 } 
 
 void STOPALL(byte led)
   {
+    
     if (rec_all)
     {
       color_led[led][0] = 0;
@@ -234,6 +276,11 @@ void STOPALL(byte led)
   }
   
 void setSTOP(OSCMessage *_mes){
+   if (DIL_.readEncoder()=='0') 
+      {
+        delay(10);
+        sendSTOP();
+      }
    STOPALL(0);
 } 
 
@@ -280,6 +327,7 @@ void DIL::begin()
     
     pinMode(PIN_AUD, OUTPUT);
     digitalWrite(PIN_AUD, LOW);
+    writeMCP(MCP1, 0x00, 255);
     
     strip.begin(); //Inicializacion de leds RGB
     strip.show();  //Visualiza leds RGB
@@ -301,7 +349,17 @@ void DIL::begin()
     pinMode(LANC_X_PIN, INPUT);
     Serial.println("LANC inicializado.");
     
+    Serial.print("DI&L numero ");
+    Serial.println(readEncoder());
+    
     #if WIFI_ENABLE
+        uint16_t outPort = 8000;
+        uint16_t localPort = 9000;  
+        if (readEncoder()=='0')
+          {
+            outPort = 9000;
+            localPort = 8000;   
+          }
         wifly.setupForUDP<HardwareSerial>(
           &Serial2,   //the serial you want to use (this can also be a software serial)
           115200, // if you use a hardware serial, I would recommend the full 115200
@@ -362,19 +420,13 @@ void DIL::begin()
           };
     server.addCallback(STRING_DYNAMIXEL,&setDYNAMIXEL);
     
-//    static char STRING_CODE[11] = {
-//            '/', 'D', 'I', 'L' , readEncoder() , '/',
-//            'C', 'O', 'D', 'E', 0x00
-//          }; 
-//    server.addCallback(STRING_CODE,&setCode);
-
-    server.addCallback("/DILX/CODE",&setCode);
+    server.addCallback("/DILX/CODE",&setAudio);
    
   }
   
 void DIL::writeDisplay(byte character)
 {
-  if (character>15) character = 15;
+  if (character>15) character = 16;
     for (int i = 0; i<14; i++)
     {
       digitalWrite(dis[i], !codeDisplay[character][i]);
@@ -389,7 +441,6 @@ boolean DIL::readButton(byte button)
 
 char DIL::readEncoder()
   {
-    #if ENCODER_ENABLE
       char value = 0;
       for (int i = 0; i<4; i++)
       {
@@ -398,9 +449,6 @@ char DIL::readEncoder()
       if (value<10) value=value+48;
       else value=value+55;
       return value;
-    #else 
-      return VALUE_ENCODER;
-    #endif
   }
 
 void DIL::checkOSC()
@@ -409,9 +457,10 @@ void DIL::checkOSC()
       server.availableCheck(2);
     #endif
   }
-  
-boolean state[6] = {0,0,0,0,0,0};
 
+                       
+boolean state[6] = {0,0,0,0,0,0};
+boolean state_button[6] = {0, 0, 0, 0, 0, 0};
 void DIL::checkButton()
   {
     for (int i = 0; i<6; i++)
@@ -425,10 +474,10 @@ void DIL::checkButton()
          state[i] = readButton(i);
          #if WIFI_ENABLE
           OSCMessage loacal_mes;
-          loacal_mes.beginMessage(STRING_BUTTON);
-          loacal_mes.addArgInt32(i);
-          loacal_mes.addArgInt32(state[i]);
-          client.send(&loacal_mes);
+//          loacal_mes.beginMessage(STRING_BUTTON);
+//          loacal_mes.addArgInt32(i);
+//          loacal_mes.addArgInt32(state[i]);
+//          client.send(&loacal_mes);
           if (state[i])
             {
               strip.setPixelColor(i, 0, 0, 255);
@@ -437,28 +486,41 @@ void DIL::checkButton()
                 {
                   if (!rec_all)
                     {
-                      delay(100);
-                      loacal_mes.beginMessage("/DILX/RECALL");
-                      client.send(&loacal_mes);
-                      RECALL(i);
+                      delay(10);
+                      sendREC();
+                      if (readEncoder() == '0') RECALL(i);
                     }
                   else
                     {
-                      delay(100);
-                      loacal_mes.beginMessage("/DILX/STOPALL");
-                      client.send(&loacal_mes);
-                      STOPALL(i);
+                      delay(10);
+                      sendSTOP();
+                      if (readEncoder() == '0') STOPALL(i);
                     }
+                }
+               else if (i==1)
+                {
+                 if (state_button[1]==0) 
+                   {
+                     writeDisplay(readEncoder()-'0');
+                     state_button[1]=1;
+                   }
+                 else  
+                   {
+                     writeDisplay(16);
+                     state_button[1]=0;
+                   }
                 }
                else if (i==2)
                 {
-                  delay(100);
-                  loacal_mes.beginMessage("/DILX/CODE");
-                  loacal_mes.addArgInt32(88);
-                  loacal_mes.addArgInt32(255);
-                  client.send(&loacal_mes);
-                  DIL_.writeMCP(MCP1, 0x00, 255);
-                  tone(PIN_AUD, melody[88], 100);
+                  sendAudio(88, 4);
+                  if (readEncoder() == '0') 
+                    {
+                      for (int i=0; i<4; i++) 
+                        {
+                          delay(500);
+                          tone(PIN_AUD, melody[88], 100);
+                        }
+                    }
                 }
                else if (i==5)
                 {
